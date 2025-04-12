@@ -15,6 +15,7 @@ type requestBuilder struct {
 	baseUrl     *url.URL
 	queryPath   *string
 	queryParams url.Values
+	headers     http.Header
 	body        any
 	userAgent   *string
 }
@@ -47,9 +48,10 @@ func (rb *requestBuilder) build() (*http.Request, error) {
 
 	urlStr := u.String()
 	if rb.queryParams != nil && len(rb.queryParams) > 0 {
-		//fmt.Println(">>>>>>>", rb.queryParams.Encode())
 		urlStr += "?" + rb.queryParams.Encode()
 	}
+
+	//fmt.Printf(">>>>> URL STR: %s\n", urlStr)
 
 	req, err := http.NewRequest(rb.method, urlStr, buf)
 	if err != nil {
@@ -62,6 +64,10 @@ func (rb *requestBuilder) build() (*http.Request, error) {
 
 	if rb.userAgent != nil && len(*rb.userAgent) > 0 {
 		req.Header.Set("User-Agent", *rb.userAgent)
+	}
+
+	for k, v := range rb.headers {
+		req.Header[k] = v
 	}
 
 	return req, nil

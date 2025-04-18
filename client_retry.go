@@ -44,11 +44,11 @@ func (c *RetryClient) NewRequest(options ...RequestOption) (*http.Request, error
 	return c.client.NewRequest(options...)
 }
 
-func (c *RetryClient) Do(ctx context.Context, req *http.Request, v interface{}) (*Response, error) {
+func (c *RetryClient) Do(ctx context.Context, req *http.Request, v interface{}) (*Response, int, error) {
 	c.logger.Trace("do: %s %s", req.Method, req.URL)
-	resp, err := c.BareDo(ctx, req)
+	resp, status, err := c.BareDo(ctx, req)
 	if err != nil {
-		return resp, err
+		return resp, status, err
 	}
 	switch v := v.(type) {
 	case nil:
@@ -58,7 +58,7 @@ func (c *RetryClient) Do(ctx context.Context, req *http.Request, v interface{}) 
 		var b []byte
 		b, err = io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, err
+			return nil, status, err
 		}
 		decErr := json.Unmarshal(b, &v)
 		if decErr == io.EOF {
@@ -69,32 +69,36 @@ func (c *RetryClient) Do(ctx context.Context, req *http.Request, v interface{}) 
 		}
 	}
 	if err != nil {
-		return nil, err
+		return nil, status, err
 	}
 	err = resp.Body.Close()
 	if err != nil {
-		return nil, err
+		return nil, status, err
 	}
-	return resp, err
+	return resp, status, err
 }
-func (c *RetryClient) BareDo(ctx context.Context, req *http.Request) (*Response, error) {
+func (c *RetryClient) BareDo(ctx context.Context, req *http.Request) (*Response, int, error) {
 
 	c.logger.Trace("bare do: %s %s", req.Method, req.URL)
 
 	if ctx == nil {
-		return nil, ErrNonNilContext
+		return nil, http.StatusInternalServerError, ErrNonNilContext
 	}
 
 	var err error
 	var res *Response
+	var status int
 	attempt := 0
 	for attempt < c.maxAttempts || c.maxAttempts < 0 && ctx.Err() == nil {
-		res, err = c.client.BareDo(ctx, req)
+		res, status, err = c.client.BareDo(ctx, req)
 		if err != nil {
 			switch e := err.(type) {
 			case ErrTooManyRequests:
 				c.logger.Debug("too many requests, wait for %v %s", e.Delay.Seconds(), "second(s)")
 				time.Sleep(e.Delay)
+			case ErrResourceNotFound:
+				c.logger.Debug("resource not found: %s", e.Resource)
+				return nil, status, err
 			default:
 				c.logger.Debug("error: %s, wait for %v %s", err, c.delay.Seconds(), "second(s)")
 				time.Sleep(c.delay)
@@ -102,8 +106,8 @@ func (c *RetryClient) BareDo(ctx context.Context, req *http.Request) (*Response,
 			}
 			continue
 		}
-		return res, nil
+		return res, status, nil
 	}
-	return nil, err
+	return nil, status, err
 
 }

@@ -80,13 +80,13 @@ func (c *BasicClient) NewRequest(options ...RequestOption) (*http.Request, error
 
 }
 
-func (c *BasicClient) Do(ctx context.Context, req *http.Request, v interface{}) (*Response, error) {
+func (c *BasicClient) Do(ctx context.Context, req *http.Request, v interface{}) (*Response, int, error) {
 
 	c.logger.Debug("do: %s %s", req.Method, req.URL)
 
-	resp, err := c.BareDo(ctx, req)
+	resp, status, err := c.BareDo(ctx, req)
 	if err != nil {
-		return resp, err
+		return resp, status, err
 	}
 
 	switch v := v.(type) {
@@ -97,7 +97,7 @@ func (c *BasicClient) Do(ctx context.Context, req *http.Request, v interface{}) 
 		var b []byte
 		b, err = io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, err
+			return nil, status, err
 		}
 		decErr := json.Unmarshal(b, &v)
 		if decErr == io.EOF {
@@ -108,20 +108,20 @@ func (c *BasicClient) Do(ctx context.Context, req *http.Request, v interface{}) 
 		}
 	}
 	if err != nil {
-		return nil, err
+		return nil, status, err
 	}
 	err = resp.Body.Close()
 	if err != nil {
-		return nil, err
+		return nil, status, err
 	}
-	return resp, err
+	return resp, status, err
 }
-func (c *BasicClient) BareDo(ctx context.Context, req *http.Request) (*Response, error) {
+func (c *BasicClient) BareDo(ctx context.Context, req *http.Request) (*Response, int, error) {
 
 	c.logger.Debug("bare do: %s %s", req.Method, req.URL)
 
 	if ctx == nil {
-		return nil, ErrNonNilContext
+		return nil, http.StatusInternalServerError, ErrNonNilContext
 	}
 
 	//fmt.Println("---------------------------------------------------------------------")
@@ -142,35 +142,37 @@ func (c *BasicClient) BareDo(ctx context.Context, req *http.Request) (*Response,
 		// the context's error is probably more useful.
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, http.StatusRequestTimeout, ctx.Err()
 		default:
 		}
 
 		// returning *url.Error.
 		if e, ok := err.(*url.Error); ok {
-			return nil, e
+			return nil, http.StatusRequestURITooLong, e
 		}
 
-		return nil, err
+		return nil, http.StatusBadRequest, err
 
 	}
 
 	response := &Response{resp}
 
-	err = checkResponse(resp)
+	var status int
+
+	err, status = checkResponse(resp)
 	if err != nil {
 		clErr := resp.Body.Close()
 		if clErr != nil {
-			return nil, fmt.Errorf("got some errors: \n%s \nand \n%s", err.Error(), clErr.Error())
+			return nil, status, fmt.Errorf("got some errors: \n%s \nand \n%s", err.Error(), clErr.Error())
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
 			// TODO: parse response to get "Retry-After"
 			//       for now return -1 to make delay decision upstream
-			return nil, ErrTooManyRequests{
+			return nil, status, ErrTooManyRequests{
 				Delay: time.Duration(-1) * time.Second,
 			}
 		}
-		return nil, err
+		return nil, status, err
 	}
-	return response, err
+	return response, status, err
 }

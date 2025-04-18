@@ -13,6 +13,14 @@ import (
 	"time"
 )
 
+type ErrResourceNotFound struct {
+	Resource string
+}
+
+func (e ErrResourceNotFound) Error() string {
+	return fmt.Sprintf("Resource Not Found: %s", e.Resource)
+}
+
 type ErrTooManyRequests struct {
 	Delay time.Duration
 }
@@ -21,7 +29,7 @@ func (e ErrTooManyRequests) Error() string {
 	return fmt.Sprintf("Too Many Requests; Wait %s", e.Delay)
 }
 
-type callerFunc func(ctx context.Context, req *http.Request) (*Response, error)
+type callerFunc func(ctx context.Context, req *http.Request) (*Response, int, error)
 
 type ThrottleClient struct {
 	client         Client
@@ -65,11 +73,11 @@ func (c *ThrottleClient) NewRequest(options ...RequestOption) (*http.Request, er
 	return c.client.NewRequest(options...)
 }
 
-func (c *ThrottleClient) Do(ctx context.Context, req *http.Request, v interface{}) (*Response, error) {
+func (c *ThrottleClient) Do(ctx context.Context, req *http.Request, v interface{}) (*Response, int, error) {
 	c.logger.Trace("do: %s %s", req.Method, req.URL)
-	resp, err := c.BareDo(ctx, req)
+	resp, status, err := c.BareDo(ctx, req)
 	if err != nil {
-		return resp, err
+		return resp, status, err
 	}
 	switch v := v.(type) {
 	case nil:
@@ -79,7 +87,7 @@ func (c *ThrottleClient) Do(ctx context.Context, req *http.Request, v interface{
 		var b []byte
 		b, err = io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, err
+			return nil, status, err
 		}
 		decErr := json.Unmarshal(b, &v)
 		if decErr == io.EOF {
@@ -90,16 +98,16 @@ func (c *ThrottleClient) Do(ctx context.Context, req *http.Request, v interface{
 		}
 	}
 	if err != nil {
-		return nil, err
+		return nil, status, err
 	}
 	err = resp.Body.Close()
 	if err != nil {
-		return nil, err
+		return nil, status, err
 	}
-	return resp, err
+	return resp, status, err
 }
 
-func (c *ThrottleClient) BareDo(ctx context.Context, req *http.Request) (*Response, error) {
+func (c *ThrottleClient) BareDo(ctx context.Context, req *http.Request) (*Response, int, error) {
 	c.logger.Trace("bare do: %s %s", req.Method, req.URL)
 	//return c.throttler(c.client.BareDo)(ctx, req)
 	return c.caller(ctx, req)
@@ -114,16 +122,16 @@ func (c *ThrottleClient) throttler(e callerFunc) callerFunc {
 	var once sync.Once
 	var lastRefill time.Time
 
-	return func(ctx context.Context, req *http.Request) (*Response, error) {
+	return func(ctx context.Context, req *http.Request) (*Response, int, error) {
 		c.logger.Trace("throttler closure: enter")
 		defer c.logger.Trace("throttler closure: exit")
 
 		if ctx == nil {
-			return nil, ErrNonNilContext
+			return nil, http.StatusInternalServerError, ErrNonNilContext
 		}
 
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, http.StatusRequestTimeout, ctx.Err()
 		}
 		once.Do(func() {
 			lastRefill = time.Now()
@@ -151,25 +159,25 @@ func (c *ThrottleClient) throttler(e callerFunc) callerFunc {
 		if tokens <= 0 {
 			delay := c.calculateDelay(lastRefill)
 			c.logger.Debug("throttler: wait for %v %s", delay.Seconds(), "second(s)")
-			return nil, ErrTooManyRequests{
+			return nil, http.StatusTooManyRequests, ErrTooManyRequests{
 				Delay: delay,
 			}
 		}
 		c.logger.Trace("throttler: call external service")
 		tokens--
 
-		res, err := e(ctx, req)
+		res, status, err := e(ctx, req)
 
 		// if our throttling was not enough, and we received 429 error from external service
 		if errors.As(err, &ErrTooManyRequests{}) {
 			c.logger.Warning("throttler: too many requests error from external service")
-			tokens = 0
-			return nil, ErrTooManyRequests{
+			tokens /= 5 // чтобы не в ноль сбрасывать; чтобы по возможности ждать не весь refillInterval
+			return nil, http.StatusTooManyRequests, ErrTooManyRequests{
 				Delay: c.calculateDelay(lastRefill) / 2,
 			}
 		}
 
-		return res, err
+		return res, status, err
 	}
 }
 func (c *ThrottleClient) calculateDelay(lastRefill time.Time) time.Duration {

@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-func createTestClient() *Client {
-	c, err := NewClient(
-		WithBaseUrl("https://test.com"),
-		WithUserAgent("test-agent"),
+func createTestClient() Client {
+	c, err := CreateClient(
+		WithBasicOption(WithBaseUrl("https://test.com")),
+		WithBasicOption(WithUserAgent("test-agent")),
 	)
 	if err != nil {
 		panic(err)

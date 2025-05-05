@@ -12,83 +12,61 @@ import (
 // region - basic client options
 
 type BasicClientOption interface {
-	Apply(*BasicClient) error
+	Apply(*BasicClient)
 }
 
-// region - http client
-
-type httpClientOption struct {
+type basicOptionHttpClient struct {
 	value *http.Client
 }
 
-func (q *httpClientOption) Apply(c *BasicClient) (err error) {
-	c.client = q.value
-	return
+func (o *basicOptionHttpClient) Apply(client *BasicClient) {
+	client.client = o.value
 }
 
 func WithHttpClient(value *http.Client) BasicClientOption {
-	return &httpClientOption{
-		value: value,
-	}
+	return &basicOptionHttpClient{value}
 }
 
-// endregion - base url
-// region - base url
-
-type baseUrlOption struct {
+type basicOptionBaseUrl struct {
 	value string
 }
 
-func (q *baseUrlOption) Apply(c *BasicClient) (err error) {
-	c.baseURL, err = url.Parse(q.value)
-	return
+func (o *basicOptionBaseUrl) Apply(client *BasicClient) {
+	value, err := url.Parse(o.value)
+	if err != nil {
+		panic(err)
+	}
+	client.baseURL = value
 }
 
 func WithBaseUrl(baseUrl string) BasicClientOption {
-	return &baseUrlOption{
-		value: baseUrl,
-	}
+	return &basicOptionBaseUrl{baseUrl}
 }
 
-// endregion - base url
-// region - user agent
-
-type userAgentOption struct {
+type basicUserAgent struct {
 	value string
 }
 
-func (q *userAgentOption) Apply(c *BasicClient) error {
-	c.userAgent = q.value
-	return nil
+func (o *basicUserAgent) Apply(client *BasicClient) {
+	client.userAgent = o.value
 }
 
 func WithUserAgent(value string) BasicClientOption {
-	return &userAgentOption{
-		value: value,
-	}
+	return &basicUserAgent{value}
 }
 
-// endregion - user agent
-// region - logger
-
-type basicLoggerOption struct {
+type basicLogger struct {
 	value logging.Logger
 }
 
-func (q *basicLoggerOption) Apply(c *BasicClient) error {
-	c.logger = q.value
-	return nil
+func (o *basicLogger) Apply(client *BasicClient) {
+	client.logger = o.value
 }
-
 func WithBasicLogger(value logging.Logger) BasicClientOption {
-	return &basicLoggerOption{
-		value: value,
-	}
+	return &basicLogger{value}
 }
 
-// endregion - user agent
-
-func AddMissingClientOption(opts []BasicClientOption, option BasicClientOption) []BasicClientOption {
+func AddMissingBasicClientOption(opts []BasicClientOption, option BasicClientOption) []BasicClientOption {
 	missingOptionType := reflect.TypeOf(option)
 	for _, opt := range opts {
 		existingOptType := reflect.TypeOf(opt)
@@ -107,144 +85,49 @@ func AddMissingClientOption(opts []BasicClientOption, option BasicClientOption) 
 // endregion
 // region - throttle client options
 
-type ThrottleClientOption interface {
-	Apply(*ThrottleClient) error
-}
-
-// region - max tokens
-
-type maxTokensOption struct {
-	value int
-}
-
-func (q *maxTokensOption) Apply(c *ThrottleClient) (err error) {
-	c.maxTokens = q.value
-	return
-}
+type ThrottleClientOption func(*ThrottleClient)
 
 func WithMaxTokens(value int) ThrottleClientOption {
-	return &maxTokensOption{
-		value: value,
+	return func(client *ThrottleClient) {
+		client.maxTokens = value
 	}
 }
-
-// endregion - base url
-// region - refill tokens
-
-type refillTokensOption struct {
-	value int
-}
-
-func (q *refillTokensOption) Apply(c *ThrottleClient) (err error) {
-	c.maxTokens = q.value
-	return
-}
-
 func WithRefillTokens(value int) ThrottleClientOption {
-	return &refillTokensOption{
-		value: value,
+	return func(client *ThrottleClient) {
+		client.refillTokens = value
 	}
 }
-
-// endregion - base url
-// region - refill interval
-
-type refillIntervalOption struct {
-	value time.Duration
-}
-
-func (q *refillIntervalOption) Apply(c *ThrottleClient) (err error) {
-	c.refillInterval = q.value
-	return
-}
-
 func WithRefillInterval(value time.Duration) ThrottleClientOption {
-	return &refillIntervalOption{
-		value: value,
+	return func(client *ThrottleClient) {
+		client.refillInterval = value
 	}
 }
-
-// endregion - base url
-// region - logger
-
-type throttleLoggerOption struct {
-	value logging.Logger
-}
-
-func (q *throttleLoggerOption) Apply(c *ThrottleClient) error {
-	c.logger = q.value
-	return nil
-}
-
 func WithThrottleLogger(value logging.Logger) ThrottleClientOption {
-	return &throttleLoggerOption{
-		value: value,
+	return func(client *ThrottleClient) {
+		client.logger = value
 	}
 }
-
-// endregion - user agent
 
 // endregion
 // region - retry client options
 
-type RetryClientOption interface {
-	Apply(*RetryClient) error
-}
-
-// region - max attempts
-
-type maxAttemptsOption struct {
-	value int
-}
-
-func (q *maxAttemptsOption) Apply(c *RetryClient) (err error) {
-	c.maxAttempts = q.value
-	return
-}
+type RetryClientOption func(*RetryClient)
 
 func WithMaxAttempts(value int) RetryClientOption {
-	return &maxAttemptsOption{
-		value: value,
+	return func(client *RetryClient) {
+		client.maxAttempts = value
 	}
 }
-
-// endregion - base url
-// region - retry delay
-
-type retryDelayOption struct {
-	value time.Duration
-}
-
-func (q *retryDelayOption) Apply(c *RetryClient) (err error) {
-	c.delay = q.value
-	return
-}
-
 func WithRetryDelay(value time.Duration) RetryClientOption {
-	return &retryDelayOption{
-		value: value,
+	return func(client *RetryClient) {
+		client.delay = value
 	}
 }
-
-// endregion - base url
-// region - logger
-
-type retryLoggerOption struct {
-	value logging.Logger
-}
-
-func (q *retryLoggerOption) Apply(c *RetryClient) error {
-	c.logger = q.value
-	return nil
-}
-
 func WithRetryLogger(value logging.Logger) RetryClientOption {
-	return &retryLoggerOption{
-		value: value,
+	return func(client *RetryClient) {
+		client.logger = value
 	}
 }
-
-// endregion - user agent
 
 // endregion
 

@@ -31,11 +31,7 @@ func NewBasicClient(options ...BasicClientOption) (Client, error) {
 	}
 
 	for _, option := range options {
-		if option != nil {
-			if err := option.Apply(client); err != nil {
-				return nil, err
-			}
-		}
+		option.Apply(client)
 	}
 	if client.baseURL == nil {
 		return nil, ErrBaseUrlNotSet
@@ -91,6 +87,7 @@ func (c *BasicClient) Do(ctx context.Context, req *http.Request, v interface{}) 
 
 	switch v := v.(type) {
 	case nil:
+		return resp, status, nil
 	case io.Writer:
 		_, err = io.Copy(v, resp.Body)
 	default:
@@ -118,7 +115,7 @@ func (c *BasicClient) Do(ctx context.Context, req *http.Request, v interface{}) 
 }
 func (c *BasicClient) BareDo(ctx context.Context, req *http.Request) (*Response, int, error) {
 
-	c.logger.Debug("bare do: %s %s", req.Method, req.URL)
+	c.logger.Trace("bare do: %s %s", req.Method, req.URL)
 
 	if ctx == nil {
 		return nil, http.StatusInternalServerError, ErrNonNilContext

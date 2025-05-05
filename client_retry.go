@@ -25,11 +25,7 @@ func NewRetryClient(client Client, options ...RetryClientOption) (Client, error)
 		logger:      logging.GetNoOpLogger(),
 	}
 	for _, option := range options {
-		if option != nil {
-			if err := option.Apply(c); err != nil {
-				return nil, err
-			}
-		}
+		option(c)
 	}
 	c.logger.Trace("new client")
 	return c, nil
@@ -52,6 +48,7 @@ func (c *RetryClient) Do(ctx context.Context, req *http.Request, v interface{}) 
 	}
 	switch v := v.(type) {
 	case nil:
+		return resp, status, nil
 	case io.Writer:
 		_, err = io.Copy(v, resp.Body)
 	default:

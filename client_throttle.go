@@ -51,11 +51,7 @@ func NewThrottleClient(client Client, options ...ThrottleClientOption) (Client, 
 	}
 
 	for _, option := range options {
-		if option != nil {
-			if err := option.Apply(c); err != nil {
-				return nil, err
-			}
-		}
+		option(c)
 	}
 
 	c.caller = c.throttler(c.client.BareDo)

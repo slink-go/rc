@@ -92,7 +92,7 @@ func WithBasicAppender(appender func(options []BasicClientOption) []BasicClientO
 }
 func WithThrottleAppender(appender func(options []ThrottleClientOption) []ThrottleClientOption) RestClientOption {
 	return func(config *rcConfig) {
-		config.throttleAppender = append(config.throttleAppender)
+		config.throttleAppender = append(config.throttleAppender, appender)
 	}
 }
 func WithRetryAppender(appender func(options []RetryClientOption) []RetryClientOption) RestClientOption {
@@ -123,7 +123,7 @@ func CreateClient(options ...RestClientOption) (Client, error) {
 		return nil, err
 	}
 
-	if len(cfg.throttleOptions) > 0 || len(cfg.throttleOptions) > 0 {
+	if len(cfg.throttleOptions) > 0 || len(cfg.throttleAppender) > 0 {
 		for _, a := range cfg.throttleAppender {
 			cfg.throttleOptions = a(cfg.throttleOptions)
 		}

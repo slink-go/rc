@@ -91,8 +91,12 @@ func (c *RetryClient) BareDo(ctx context.Context, req *http.Request) (*Response,
 		if err != nil {
 			switch e := err.(type) {
 			case ErrTooManyRequests:
-				c.logger.Debug("too many requests, wait for %v %s", e.Delay.Seconds(), "second(s)")
-				time.Sleep(e.Delay)
+				wait := e.Delay
+				if wait <= 0 {
+					wait = c.delay
+				}
+				c.logger.Debug("too many requests, wait for %v %s", wait.Seconds(), "second(s)")
+				time.Sleep(wait)
 			case ErrResourceNotFound:
 				c.logger.Debug("resource not found: %s", e.Resource)
 				return nil, status, err

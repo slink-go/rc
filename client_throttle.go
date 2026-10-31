@@ -114,6 +114,7 @@ func (c *ThrottleClient) throttler(e callerFunc) callerFunc {
 	c.logger.Trace("throttler enter")
 	defer c.logger.Trace("throttler exit")
 
+	var mu sync.Mutex
 	var tokens = c.maxTokens
 	var once sync.Once
 	var lastRefill time.Time
@@ -130,30 +131,31 @@ func (c *ThrottleClient) throttler(e callerFunc) callerFunc {
 			return nil, http.StatusRequestTimeout, ctx.Err()
 		}
 		once.Do(func() {
+			mu.Lock()
 			lastRefill = time.Now()
+			mu.Unlock()
 			ticker := time.NewTicker(c.refillInterval)
 			go func() {
 				defer ticker.Stop()
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case <-ticker.C:
-						lastRefill = time.Now()
-						if tokens < c.maxTokens {
-							c.logger.Debug("throttler: refill tokens")
-							t := tokens + c.refillTokens
-							if t > c.maxTokens {
-								t = c.maxTokens
-							}
-							tokens = t
+				for range ticker.C {
+					mu.Lock()
+					lastRefill = time.Now()
+					if tokens < c.maxTokens {
+						c.logger.Debug("throttler: refill tokens")
+						t := tokens + c.refillTokens
+						if t > c.maxTokens {
+							t = c.maxTokens
 						}
+						tokens = t
 					}
+					mu.Unlock()
 				}
 			}()
 		})
+		mu.Lock()
 		if tokens <= 0 {
 			delay := c.calculateDelay(lastRefill)
+			mu.Unlock()
 			c.logger.Debug("throttler: wait for %v %s", delay.Seconds(), "second(s)")
 			return nil, http.StatusTooManyRequests, ErrTooManyRequests{
 				Delay: delay,
@@ -161,15 +163,19 @@ func (c *ThrottleClient) throttler(e callerFunc) callerFunc {
 		}
 		c.logger.Trace("throttler: call external service")
 		tokens--
+		mu.Unlock()
 
 		res, status, err := e(ctx, req)
 
 		// if our throttling was not enough, and we received 429 error from external service
 		if errors.As(err, &ErrTooManyRequests{}) {
 			c.logger.Warning("throttler: too many requests error from external service")
+			mu.Lock()
 			tokens /= 5 // чтобы не в ноль сбрасывать; чтобы по возможности ждать не весь refillInterval
+			delay := c.calculateDelay(lastRefill)
+			mu.Unlock()
 			return nil, http.StatusTooManyRequests, ErrTooManyRequests{
-				Delay: c.calculateDelay(lastRefill) / 2,
+				Delay: delay / 2,
 			}
 		}
 
@@ -178,8 +184,8 @@ func (c *ThrottleClient) throttler(e callerFunc) callerFunc {
 }
 func (c *ThrottleClient) calculateDelay(lastRefill time.Time) time.Duration {
 	ms := c.refillInterval.Milliseconds() - time.Now().Sub(lastRefill).Milliseconds() + 100
-	if ms < 0 {
-		ms = 0
+	if ms < 100 {
+		ms = 100
 	}
 	return time.Duration(ms) * time.Millisecond
 }
